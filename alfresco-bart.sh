@@ -32,7 +32,7 @@
 #########################################################################################
 
 # Load properties
-ALFBRT_PATH=/opt/alfresco/BART
+ALFBRT_PATH=/opt/eisenvault_installtions/BART
 
 if [ -f ${ALFBRT_PATH}/alfresco-bart.properties ]; then
 	. ${ALFBRT_PATH}/alfresco-bart.properties 
