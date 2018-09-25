@@ -32,7 +32,7 @@
 #########################################################################################
 
 # Load properties
-ALFBRT_PATH=/opt/eisenvault_installtions/BART
+ALFBRT_PATH=/opt/alfresco_installer/eisenvault_installations/backup_tenants/BART/aws-bart-backup
 
 if [ -f ${ALFBRT_PATH}/alfresco-bart.properties ]; then
 	. ${ALFBRT_PATH}/alfresco-bart.properties 
@@ -60,11 +60,12 @@ Modes:
     list [set]		lists the files currently backed up in the archive
 
 Sets:
-    all		do all backup sets
-    index	use index backup set (group) for selected mode
-    db		use data base backup set (group) for selected mode
-    cs		use content store backup set (group) for selected mode
-    files	use rest of files backup set (group) for selected mode"
+    all		   do all backup sets
+    index	   use index backup set (group) for selected mode
+    db		   use data base backup set (group) for selected mode
+    cs		   use content store backup set (group) for selected mode
+    files	   use rest of files backup set (group) for selected mode
+    tenants    use tenants backup set (group) for selected mode"
 }
 
 # Checks if encryption is required if not it adds appropiate flag
@@ -269,6 +270,29 @@ function filesBackup {
   	echo "$LOG_DATE_LOG - $BART_LOG_TAG Files backup done!" >> $ALFBRT_LOG_FILE
 }
 
+function tenantsBackup {
+
+	tenants="$TENANTS_NAMES"
+	IFS=" ,"
+	i=0
+	for tenant in ${tenants}
+	do
+		i=$((++i))
+		eval tenant${i}="${tenant}"
+	done
+	for ((j=1;j<=i;++j))
+	do
+  		tenant_name="tenant${j}"		
+		TENANT="$TENANTS_DIRECTORY/${!tenant_name}"
+		echo "$LOG_DATE_LOG - $BART_LOG_TAG Running command - $DUPLICITYBIN $PARAMS $TENANT $DEST/tenants/${!tenant_name}" >> $ALFBRT_LOG_FILE
+	        # tenants backup itself
+       		$DUPLICITYBIN $PARAMS $TENANT $TENANTS_ADDITIONAL \
+	        $DEST/tenants/${!tenant_name} >> $ALFBRT_LOG_FILE
+	        echo "$LOG_DATE_LOG - $BART_LOG_TAG tenant ${!tenant_name} backup done!" >> $ALFBRT_LOG_FILE
+	done
+	echo "$LOG_DATE_LOG - $BART_LOG_TAG tenants backup done!" >> $ALFBRT_LOG_FILE
+}
+
 function restoreOptions (){
 	if [ "$WIZARD" = "1" ]; then
 		RESTORE_TIME=$RESTOREDATE
@@ -341,7 +365,7 @@ function restoreContentStore (){
 		echo "No backup CONTENTSTORE configured to backup. Nothing to restore."
 	fi
 }
-	
+
 function restoreFiles (){
 	restoreOptions $1 $2 $3 $4
 	if [ ${BACKUP_FILES_ENABLED} == 'true' ]; then
@@ -353,6 +377,28 @@ function restoreFiles (){
 		echo ""
 	else
 		echo "No backup FILES configured to backup. Nothing to restore."
+	fi
+}
+
+function getTenantName(){
+	echo ""
+	echo -n " ============================= Restore TENANTS one by one ============================= "
+	echo ""
+	echo -n " Enter a tenant name : "
+	read TENANT_NAME
+}
+
+function restoreTenants (){
+	restoreOptions $1 $2 $3 $4
+	if [ ${BACKUP_TENANTS_ENABLED} == 'true' ]; then
+		echo " =========== Starting restore TENANTS backup from $DEST/tenants/$TENANT_NAME to $RESTOREDIR/tenants/$TENANT_NAME ==========="
+		echo "$LOG_DATE_LOG - $BART_LOG_TAG - Recovery $RESTORE_TIME_FLAG $DEST/tenants/$TENANT_NAME $RESTOREDIR/tenants/$TENANT_NAME" >> $ALFBRT_LOG_FILE
+		$DUPLICITYBIN restore --restore-time $RESTORE_TIME $DEST/tenants/$TENANT_NAME $RESTOREDIR/tenants/$TENANT_NAME
+		echo ""
+		echo "backup for TENANTS from $DEST/tenants/$TENANT_NAME... DONE!"
+		echo ""
+	else
+		echo "No backup for TENANTS/$TENANT_NAME configured to backup. Nothing to restore."
 	fi
 }
 
@@ -380,7 +426,7 @@ function restoreWizard(){
     	1 ) 
     		RESTORECHOOSED=full
     		echo ""
-    		echo " This wizard will help you to restore your Indexes, Data Base, Content Store and rest of files to a given directory."
+    		echo " This wizard will help you to restore your Indexes, Data Base, Content Store , tenants and rest of files to a given directory."
     		echo ""
     		echo -n " Type a destination path with enough space available: "
     		builtin read RESTOREDIR
@@ -417,6 +463,8 @@ function restoreWizard(){
 			restoreDb
 			restoreContentStore
 			restoreFiles
+			getTenantName
+			restoreTenants
 			echo ""
 			echo " Restore finished! Now you have to copy and replace your existing content with the content left in $RESTOREDIR, if you need a guideline about how to recovery your Alfresco installation from a backup please read the Alfresco Backup and Desaster Recovery White Paper file."
 			echo ""
@@ -428,8 +476,14 @@ function restoreWizard(){
     		echo ""
     		echo " This wizard will help you to restore one of your backup components: Indexes, Data Base, Content Store or rest of files to a given directory."
     		echo ""
-    		echo -n " Type a component to restore [index|db|cs|files]: "
+    		echo -n " Type a component to restore [index|db|cs|files|tenants]: "
     		builtin read BACKUPGROUP
+    		case $BACKUPGROUP in
+			"tenants" )
+				getTenantName
+    		;;
+    		
+			esac
     		echo -n " Type a destination path with enough space available: "
     		builtin read RESTOREDIR
     		while [ ! -w $RESTOREDIR ]; do
@@ -473,6 +527,9 @@ function restoreWizard(){
 			;;
 			"files" )
 				restoreFiles
+			;;
+			"tenants" )
+				restoreTenants
     		;;
 			* )
 				echo "ERROR: Invalid parameter, there is no backup group with this name!"
@@ -636,7 +693,7 @@ function restoreSelectedNode (){
 
 function verifyCommands (){
 #    	if [ -z $2 ]; then	
-#			echo "Please specify a valid backup group name to verify [index|db|cs|files|all]" 
+#			echo "Please specify a valid backup group name to verify [index|db|cs|files|tenants|all]" 
 #		else
 		case $2 in
 			"index" )	
@@ -662,6 +719,11 @@ function verifyCommands (){
     			$DUPLICITYBIN verify -v${DUPLICITY_LOG_VERBOSITY} ${NOENCFLAG} --log-file=${ALFBRT_LOG_FILE} $DEST/files $ALF_INSTALLATION_DIR | grep -v "alf_data\/solr"|grep -v "alf_data\/alfresco-db-backup"|grep -v "alf_data\/contentstore"
     			echo "DONE!"
 			;;
+			"tenants" )
+				echo "=========================== BACKUP VERIFICATION FOR TENANT - $TENANT_NAME ==========================="
+    			$DUPLICITYBIN verify -v${DUPLICITY_LOG_VERBOSITY} ${NOENCFLAG} --log-file=${ALFBRT_LOG_FILE} $DEST/tenants/$TENANT_NAME $ALF_DIRROOT |grep $TENANT_NAME
+				echo "DONE!"
+			;;
 			* )
 				echo "=========================== BACKUP VERIFICATION FOR INDEXES $INDEXTYPE backup files ==========================="
 				$DUPLICITYBIN verify -v${DUPLICITY_LOG_VERBOSITY} ${NOENCFLAG} --log-file=${ALFBRT_LOG_FILE} $DEST/$INDEXTYPE/backup $INDEXES_BACKUP_DIR |grep snapshot ; \
@@ -675,6 +737,8 @@ function verifyCommands (){
 				$DUPLICITYBIN verify -v${DUPLICITY_LOG_VERBOSITY} ${NOENCFLAG} --log-file=${ALFBRT_LOG_FILE} $DEST/cs $ALF_DIRROOT |grep contentstore; \
 				echo "=========================== BACKUP VERIFICATION FOR FILES ==========================="; \
 				$DUPLICITYBIN verify -v${DUPLICITY_LOG_VERBOSITY} ${NOENCFLAG} --log-file=${ALFBRT_LOG_FILE} $DEST/files $ALF_INSTALLATION_DIR | grep -v "alf_data\/solr"|grep -v "alf_data\/alfresco-db-backup"|grep -v "alf_data\/contentstore"
+				echo "=========================== BACKUP VERIFICATION FOR TENANT - $TENANT_NAME ==========================="; \
+				$DUPLICITYBIN verify -v${DUPLICITY_LOG_VERBOSITY} ${NOENCFLAG} --log-file=${ALFBRT_LOG_FILE} $DEST/tenants/$TENANT_NAME $ALF_DIRROOT |grep $TENANT_NAME; \
 			;;
 		esac 
 #		fi
@@ -682,7 +746,7 @@ function verifyCommands (){
 
 function listCommands(){
 #		if [ -z $2 ]; then	
-#			echo "Please specify a valid backup group name to list [index|db|cs|files|all]" 
+#			echo "Please specify a valid backup group name to list [index|db|cs|files|tenants|all]" 
 #		else
 		case $2 in
 			"index" )
@@ -700,11 +764,15 @@ function listCommands(){
 			"files" )
 				$DUPLICITYBIN list-current-files -v${DUPLICITY_LOG_VERBOSITY} ${NOENCFLAG} --log-file=${ALFBRT_LOG_FILE} $DEST/files 
 			;;
+			"tenants" )
+				$DUPLICITYBIN list-current-files -v${DUPLICITY_LOG_VERBOSITY} ${NOENCFLAG} --log-file=${ALFBRT_LOG_FILE} $DEST/tenants/$TENANT_NAME
+			;;
 			* )
 				$DUPLICITYBIN list-current-files -v${DUPLICITY_LOG_VERBOSITY} ${NOENCFLAG} --log-file=${ALFBRT_LOG_FILE} $DEST/$INDEXTYPE/backup; \
 				$DUPLICITYBIN list-current-files -v${DUPLICITY_LOG_VERBOSITY} ${NOENCFLAG} --log-file=${ALFBRT_LOG_FILE} $DEST/$INDEXTYPE/config; \
 				$DUPLICITYBIN list-current-files -v${DUPLICITY_LOG_VERBOSITY} ${NOENCFLAG} --log-file=${ALFBRT_LOG_FILE} $DEST/$DBTYPE; \
 				$DUPLICITYBIN list-current-files -v${DUPLICITY_LOG_VERBOSITY} ${NOENCFLAG} --log-file=${ALFBRT_LOG_FILE} $DEST/cs; \
+				$DUPLICITYBIN list-current-files -v${DUPLICITY_LOG_VERBOSITY} ${NOENCFLAG} --log-file=${ALFBRT_LOG_FILE} $DEST/tenants/$TENANT_NAME; \
 				$DUPLICITYBIN list-current-files -v${DUPLICITY_LOG_VERBOSITY} ${NOENCFLAG} --log-file=${ALFBRT_LOG_FILE} $DEST/files
 			;;
 		esac 
@@ -713,7 +781,7 @@ function listCommands(){
 
 function collectionCommands () {
 #		if [ -z $2 ]; then	
-#			echo " Please specify a valid backup group name to access its collection [index|db|cs|files|all]" 
+#			echo " Please specify a valid backup group name to access its collection [index|db|cs|files|tenants|all]" 
 #		else
 		case $2 in
 			"index" )	
@@ -736,6 +804,10 @@ function collectionCommands () {
 				echo "============================== BACKUP COLLECTION FOR FILES ============================"
     			$DUPLICITYBIN collection-status -v0 ${NOENCFLAG} --log-file=${ALFBRT_LOG_FILE} $DEST/files			
 			;;
+			"tenants" )
+				echo "========================== BACKUP COLLECTION FOR TENANT - $TENANT_NAME ========================="
+    			$DUPLICITYBIN collection-status -v0 ${NOENCFLAG} --log-file=${ALFBRT_LOG_FILE} $DEST/tenants/$TENANT_NAME
+			;;
 			* )
 				echo "======================= BACKUP COLLECTION FOR INDEXES $INDEXTYPE ======================"
 				$DUPLICITYBIN collection-status -v0 ${NOENCFLAG} --log-file=${ALFBRT_LOG_FILE} $DEST/$INDEXTYPE/backup; \ 
@@ -749,6 +821,8 @@ function collectionCommands () {
 				$DUPLICITYBIN collection-status -v0 ${NOENCFLAG} --log-file=${ALFBRT_LOG_FILE} $DEST/cs; \
 				echo "============================== BACKUP COLLECTION FOR FILES ============================"; \
 				$DUPLICITYBIN collection-status -v0 ${NOENCFLAG} --log-file=${ALFBRT_LOG_FILE} $DEST/files
+				echo "============================== BACKUP COLLECTION FOR TENANT - $TENANT_NAME ============================"; \
+				$DUPLICITYBIN collection-status -v0 ${NOENCFLAG} --log-file=${ALFBRT_LOG_FILE} $DEST/tenants/$TENANT_NAME
 			;;
 		esac 
 #		fi
@@ -806,6 +880,12 @@ function maintenanceCommands () {
   		echo "$LOG_DATE_LOG - $BART_LOG_TAG Running command - $DUPLICITYBIN remove-all-but-n-full $MAXFULL -v${DUPLICITY_LOG_VERBOSITY} --log-file=${ALFBRT_LOG_FILE} --force $DEST/files" >> $ALFBRT_LOG_FILE 2>&1
   		$DUPLICITYBIN remove-all-inc-of-but-n-full $MAXFULL -v${DUPLICITY_LOG_VERBOSITY} --log-file=${ALFBRT_LOG_FILE} --force $DEST/files >> $ALFBRT_LOG_FILE 2>&1
 	fi 
+	if [ ${BACKUP_TENANTS_ENABLED} == 'true' ]; then
+		echo "$LOG_DATE_LOG - $BART_LOG_TAG Running command - $DUPLICITYBIN remove-older-than $CLEAN_TIME -v${DUPLICITY_LOG_VERBOSITY} --log-file=${ALFBRT_LOG_FILE} --force --extra-clean $DEST/tenants/$TENANT_NAME" >> $ALFBRT_LOG_FILE
+  		$DUPLICITYBIN remove-older-than $CLEAN_TIME -v${DUPLICITY_LOG_VERBOSITY} --log-file=${ALFBRT_LOG_FILE} --force --extra-clean $DEST/tenants/$TENANT_NAME >> $ALFBRT_LOG_FILE 2>&1
+  		echo "$LOG_DATE_LOG - $BART_LOG_TAG Running command - $DUPLICITYBIN remove-all-but-n-full $MAXFULL -v${DUPLICITY_LOG_VERBOSITY} --log-file=${ALFBRT_LOG_FILE} --force $DEST/tenants/$TENANT_NAME" >> $ALFBRT_LOG_FILE 2>&1
+  		$DUPLICITYBIN remove-all-inc-of-but-n-full $MAXFULL -v${DUPLICITY_LOG_VERBOSITY} --log-file=${ALFBRT_LOG_FILE} --force $DEST/tenants/$TENANT_NAME >> $ALFBRT_LOG_FILE 2>&1
+	fi 
 	echo "$LOG_DATE_LOG - $BART_LOG_TAG Maintenance commands DONE!" >> $ALFBRT_LOG_FILE
 }
 
@@ -816,25 +896,31 @@ case $1 in
 			"index" )
 			# Run backup of indexes if enabled
 			if [ ${BACKUP_INDEX_ENABLED} == 'true' ]; then
-				indexBackup
+				indexBackup 
 			fi
 			;;
 			"db" )
 			# Run backup of db if enabled
 			if [ ${BACKUP_DB_ENABLED} == 'true' ]; then
-				dbBackup
+				dbBackup 
 			fi
 			;;
 			"cs" )
 			# Run backup of contentStore if enabled
 			if [ ${BACKUP_CONTENTSTORE_ENABLED} == 'true' ]; then
-				contentStoreBackup
+				contentStoreBackup 
 			fi
 			;;
 			"files" )
 			# Run backup of files if enabled
 			if [ ${BACKUP_FILES_ENABLED} == 'true' ]; then
 				filesBackup
+			fi
+			;;
+			"tenants" )
+			# Run backup of tenants if enabled
+			if [ ${BACKUP_TENANTS_ENABLED} == 'true' ]; then
+				tenantsBackup
 			fi
 			;;
 			* )
@@ -852,19 +938,23 @@ case $1 in
 			fi
 			# Run backup of db if enabled
 			if [ ${BACKUP_DB_ENABLED} == 'true' ]; then
-				dbBackup
+				dbBackup 
 			fi
 			# Run backup of contentStore if enabled
 			if [ ${BACKUP_CONTENTSTORE_ENABLED} == 'true' ]; then
-				contentStoreBackup
+				contentStoreBackup 
 			fi
 			# Run backup of files if enabled
 			if [ ${BACKUP_FILES_ENABLED} == 'true' ]; then
 				filesBackup
+			fi
+			# Run backup of tenants if enabled
+			if [ ${BACKUP_TENANTS_ENABLED} == 'true' ]; then
+				tenantsBackup
 			fi 
 			# Maintenance commands (cleanups and apply retention policies)
 			if [ ${BACKUP_POLICIES_ENABLED} == 'true' ]; then
-				maintenanceCommands
+				maintenanceCommands				 
 			fi
 		esac
 
@@ -884,11 +974,15 @@ case $1 in
 			"files" )
 				restoreFiles $1 $2 $3 $4
 			;;
+			"tenants" )
+				restoreTenants $1 $2 $3 $4
+			;;
 			"all" )
 				restoreIndexes $1 $2 $3 $4
 				restoreDb $1 $2 $3 $4
 				restoreContentStore $1 $2 $3 $4
 				restoreFiles $1 $2 $3 $4
+				restoreTenants $1 $2 $3 $4
 			;;
 			* )
 			restoreWizard
